@@ -22,10 +22,12 @@
         .preco-label { color: #666; font-size: 12px; }
         .preco-antigo { color: #999; text-decoration: line-through; font-size: 18px; }
         .preco-novo { color: #28a745; font-size: 24px; font-weight: bold; }
-        .erro { background: #ffe6e6; padding: 20px; border-radius: 12px; color: #c00; text-align: center; font-weight: bold; }
+        .erro { background: #ffe6e6; padding: 20px; border-radius: 12px; color: #c00; text-align: center; font-weight: bold; font-size: 14px; word-break: break-all; }
+        .sucesso { background: #e6ffe6; padding: 20px; border-radius: 12px; color: #00a000; text-align: center; font-weight: bold; }
         .input-group { display: flex; gap: 10px; margin-bottom: 20px; }
         .input-group input { flex: 1; padding: 12px; border: 2px solid #ddd; border-radius: 8px; }
         .loading { color: #667eea; text-align: center; }
+        .debug-box { background: #f0f0ff; border: 2px solid #667eea; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-size: 12px; color: #333; font-family: monospace; }
     </style>
 </head>
 <body>
@@ -34,6 +36,7 @@
             <div class="logo">📦</div>
             <h1>Remarcação de Preços</h1>
             <p>Bem-vindo!</p>
+            <div class="debug-box" id="debugBox" style="display:none;"></div>
             <button class="btn btn-primary" onclick="app.abrirScanner()">📱 Escanear Código</button>
             <button class="btn btn-primary" onclick="app.listarProdutos()">📋 Ver Produtos</button>
         </div>
@@ -64,8 +67,28 @@
         const SUPABASE_URL = 'https://unzigvjlreofcplkmf.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuemlndmdqbHJlb2ZjcGxrZm1mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2OTU5NzgsImV4cCI6MjEwNDI3MTk3OH0.f3bOF6iqL9XZ8X7Jc4liUftrYIHo3l-BUusMBCuke7g';
 
+        function debug(msg) {
+            console.log(msg);
+            const box = document.getElementById('debugBox');
+            box.style.display = 'block';
+            box.innerHTML += msg + '<br>';
+        }
+
         const app = {
-            db: window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY),
+            db: null,
+            
+            init() {
+                try {
+                    debug('🔧 Inicializando Supabase...');
+                    debug('URL: ' + SUPABASE_URL);
+                    debug('Key: ' + SUPABASE_KEY.substring(0, 30) + '...');
+                    
+                    this.db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+                    debug('✅ Supabase OK!');
+                } catch (e) {
+                    debug('❌ ERRO ao inicializar: ' + e.message);
+                }
+            },
             
             voltar() {
                 document.getElementById('menu').classList.remove('hidden');
@@ -130,21 +153,33 @@
             async listarProdutos() {
                 this.voltar();
                 document.getElementById('lista').classList.remove('hidden');
+                document.getElementById('listContent').innerHTML = '<div class="loading">Conectando ao Supabase...</div>';
                 
                 try {
+                    if (!this.db) {
+                        throw new Error('Supabase não inicializado');
+                    }
+                    
+                    debug('🔍 Buscando produtos...');
+                    
                     const { data, error } = await this.db
                         .from('produtos')
                         .select('*')
                         .limit(50);
                     
-                    if (error || !data) {
-                        document.getElementById('listContent').innerHTML = '<div class="erro">Erro ao carregar</div>';
-                        return;
+                    if (error) {
+                        throw new Error(error.message || 'Erro desconhecido do Supabase');
                     }
                     
-                    let html = `<div style="margin-bottom: 20px; color: #667eea; font-weight: bold;">Total: ${data.length} produtos</div>`;
+                    if (!data) {
+                        throw new Error('Nenhum dado retornado');
+                    }
+                    
+                    debug('✅ ' + data.length + ' produtos carregados!');
+                    
+                    let html = `<div class="sucesso">Total: ${data.length} produtos</div>`;
                     data.forEach(p => {
-                        html += `<div style="background: white; padding: 15px; margin-bottom: 10px; border-radius: 8px; cursor: pointer;" onclick="app.usarProduto('${p.codigo_barras}')">
+                        html += `<div style="background: white; padding: 15px; margin-bottom: 10px; border-radius: 8px;">
                             <p><strong>${p.referencia}</strong></p>
                             <p style="font-size: 14px; color: #666;">Código: ${p.codigo_barras}</p>
                             <p style="font-size: 14px; color: #666;">De: R$ ${Number(p.preco_de).toFixed(2)} | Por: R$ ${Number(p.preco_por).toFixed(2)}</p>
@@ -152,18 +187,15 @@
                     });
                     document.getElementById('listContent').innerHTML = html;
                 } catch (e) {
-                    document.getElementById('listContent').innerHTML = '<div class="erro">Erro: ' + e.message + '</div>';
+                    debug('❌ ERRO: ' + e.message);
+                    document.getElementById('listContent').innerHTML = `<div class="erro">❌ ${e.message}</div>`;
                 }
-            },
-            
-            usarProduto(codigo) {
-                document.getElementById('codigo').value = codigo;
-                this.abrirScanner();
-                this.buscar();
             }
         };
         
-        document.getElementById('codigo').addEventListener('keypress', (e) => {
+        app.init();
+        
+        document.getElementById('codigo')?.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') app.buscar();
         });
     </script>
